@@ -35,65 +35,108 @@ class spc(object):
       self.nx=ih[3]; self.ny=ih[4]; self.nz=ih[5]
       self.lbox=float(2.0*np.pi*ih[6]); self.nprocs=ih[8]
       self._readglobs()
+      self._readlengs()
+      self._readspectra()
       self.xx=np.linspace(0,self.lbox,self.nx)
       self.yy=np.linspace(0,self.lbox,self.ny)
       self.zz=np.linspace(0,self.lbox,self.nz)
       self.dx=self.lbox/float(self.nx)
       self.dy=self.lbox/float(self.ny)
       self.dz=self.lbox/float(self.nz)
-      self.kmax=int(float(self.nx)/3.0) # Assuming nx=ny=nz
+      #self.kmax=int(float(self.nx)/3.0) # Assuming nx=ny=nz
       self.kdiss1= ((self.enst + self.jsqd)**0.25)/np.sqrt(self.visc) # Kinetic dissipation wavenumber
       self.kdiss2= ((self.enst + self.jsqd)**0.25)/np.sqrt(self.rsist) # Magnetic dissipation wavenumber
-     
-   def _readglobs(self):
-      # Tulasi's code
-      '''
-      fl=open(self.rundir+'/globs.dat','r')
-      self.comment=fl.readline().strip(' \t\r\n')
-      tmp=fl.readline().split(); self.ntglobs=np.int(tmp[0]); self.numglobs=np.int(37)#np.float(tmp[1]))
-      globs=[]
-      for i in fl.readline():
-         globs+=i.split()
-      for i in globs:
-		print i
+      self.eps=self.visc*self.enst + self.rsist*self.jsqd
+      self.urms=np.sqrt((2.0*self.Ev)/3.0)
+      self.brms=np.sqrt((2.0*self.Eb)/3.0)
+      self.zprms=np.sqrt(2.0*(self.Eb+self.Ev+self.Hc)/3.0)
+      self.zmrms=np.sqrt(2.0*(self.Eb+self.Ev-self.Hc)/3.0)
+      self.Lv_taylor=self.urms*(np.sqrt(15.0*self.visc/self.eps))
+      self.Lb_taylor=self.brms*(np.sqrt(15.0*self.rsist/self.eps)) 
+      self.Re_taylor=self.urms*(self.Lv_taylor/self.visc)
+      self.Lv_int=(3.0*np.pi*self.Lv)/(4.0*self.Ev)
+      self.Lb_int=(3.0*np.pi*self.Lb)/(4.0*self.Eb)
+      self.Re_int=self.urms*(self.Lv_int/self.visc)
+      self.Cv_eps=(self.eps*self.Lv_int)/(self.urms**3.0)
+      self.Cb_eps=(self.eps*self.Lb_int)/(self.brms**3.0)
+      self.C_eps=(self.eps*self.Lv_int)/(self.zprms**3.0)
+      self.Re_minus=self.zprms*(self.Lv_int/(self.visc+self.rsist))
 
-      globs=np.asarray([float(i) for i in globs]).reshape((self.ntglobs,self.numglobs))
-      fl.close()
-      half_pi=np.pi/2.
-      self.time      = globs[:,0]
-      self.Ev        = globs[:,1]
-      self.Eb        = globs[:,2]
-      self.asqd      = globs[:,3]
-      self.jsqd      = globs[:,4]
-      self.enst      = globs[:,5]
-      self.Hm        = globs[:,6]
-      self.Hc        = globs[:,7]
-      self.Hk        = globs[:,8]
-      self.da0       = globs[:,9]
-      self.emfx      = globs[:,10]
-      self.emfy      = globs[:,11]
-      self.emfz      = globs[:,12]
-      self.Ev_2D     = globs[:,13]
-      self.Eb_2D     = globs[:,14]
-      self.asqd_2D   = globs[:,15]
-      self.jsqd_2D   = globs[:,16]
-      self.enst_2D   = globs[:,17]
-      self.Hc_2D     = globs[:,18]
-      self.jom       = globs[:,19]
-      self.Hj        = globs[:,20]
-      self.jom_2D    = globs[:,21]
-      self.Lv_2D     = globs[:,22]/self.Ev_2D*half_pi
-      self.Lb_2D     = globs[:,23]/self.Eb_2D*half_pi
-      self.LHc_2D    = globs[:,24]*half_pi
-      self.Lv        = globs[:,25]/self.Ev*half_pi
-      self.Lb        = globs[:,26]/self.Eb*half_pi
-      self.LHc       = globs[:,27]*half_pi
-      self.SigVom    = globs[:,28]
-      self.SigJB     = globs[:,29]
-      self.SigVB     = globs[:,30]
-      self.max_om123 = globs[:,31:37]
-      self.max_j123  = globs[:,37:]
-      '''
+
+   def _readlengs(self):
+      
+      fl=open(self.rundir+'/spectra-lengths.dat','r')
+      lengs = []
+      
+      for i in fl:
+	 lengs += [i.split()]
+
+      # lengs[0] is label, 
+      # lengs[1] = [nflds, nwrt,  B0, nx, ny, nz, visc, rsist, dt, Hall_p, 0.0]
+      # lengs[2] = [time, Ev, Eb, Hc, enst, jsqd, Lv, Lb, Lhc, 0.0]
+
+      self.label0 = lengs[0]
+
+      n = int(len(lengs)-2)
+      
+      self.Lt = np.zeros(n) 	# Time
+      self.Lv = np.zeros(n)
+      self.Lb = np.zeros(n)
+      self.Lhc = np.zeros(n)
+
+      for i in range(n):
+
+         self.Lt[i] = lengs[2+i][0]
+         self.Lv[i] = lengs[2+i][6]
+         self.Lb[i] = lengs[2+i][7]
+         self.Lhc[i] = lengs[2+i][8]
+
+   def _readspectra(self):
+
+      fl=open(self.rundir+'/spectra.dat','r')
+      spectra = []
+      
+      for i in fl:
+	 spectra += [i.split()]
+	 
+      # spectra[0] = label,
+      # spectra[1] = k, Ev(k) ... 
+      # spectra[2] = [nwrt, ktop(kmax), B0, Nx, Ny, Nz, visc, rsis, dt, Hall_p, 0.0]
+      # spectra[3] = time
+      # spectra[4] = [k, Ev(k), Eb(k), Hc(k), Hm(k), Hk(k), mult]
+
+      self.label1 = spectra[0]
+      self.knwrt = int(spectra[2][0]); self.kmax = int(spectra[2][1])
+      
+      n = int(self.knwrt)
+      #n = 2
+
+      self.kt = np.zeros(self.knwrt) 	# Time for a particluar k-E(k) value
+      self.kk = np.zeros(self.kmax)
+      self.Evk = np.zeros((self.kmax,self.knwrt))
+      self.Ebk = np.zeros((self.kmax,self.knwrt))
+      self.Hck = np.zeros((self.kmax,self.knwrt))
+      self.Hmk = np.zeros((self.kmax,self.knwrt))
+      self.Hkk = np.zeros((self.kmax,self.knwrt))
+
+      ## There are kmax number of k's but the k's go like 0,1,2 ... kmax. 
+      ## So there are kmax+1 number of k's with the 0th mode meaning nothing
+
+      for i in range(n):
+	 #print  spectra[3+i*(self.kmax+2)]
+	 
+	 for j in range(self.kmax):
+		 
+	         self.kk[j] = spectra[5+j][0]		# kk=0 is nothing
+		 
+		 self.Evk[j][i] = spectra[5+i*(self.kmax+2)+j][1]
+		 self.Ebk[j][i] = spectra[5+i*(self.kmax+2)+j][2]
+		 self.Hck[j][i] = spectra[5+i*(self.kmax+2)+j][3]
+		 self.Hmk[j][i] = spectra[5+i*(self.kmax+2)+j][4]
+		 self.Hkk[j][i] = spectra[5+i*(self.kmax+2)+j][5]
+
+
+   def _readglobs(self):
       
       # Riddhi's code
       fl=open(self.rundir+'/globs.dat','r')
